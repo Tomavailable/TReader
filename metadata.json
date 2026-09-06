@@ -1,0 +1,6 @@
+{
+  "name": "TTS Reader",
+  "description": "Smart text-to-speech reader with sentence segmenting, multi-voice rotation, loop playback, and audio export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
