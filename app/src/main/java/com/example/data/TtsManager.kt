@@ -1,6 +1,7 @@
 package com.example.data
 
 import android.content.Context
+import android.media.AudioManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -150,6 +151,7 @@ class TtsManager(private val context: Context) {
 
             val params = Bundle().apply {
                 putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
             }
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
         } catch (e: Exception) {

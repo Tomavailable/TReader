@@ -48,19 +48,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
@@ -116,6 +122,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.DocumentParser
@@ -343,84 +359,12 @@ fun TtsReaderScreen(
 
     if (uiState.wordLookupMode == WordLookupMode.POPOVER_MENU && !uiState.activePopoverWord.isNullOrEmpty()) {
         val popoverWord = uiState.activePopoverWord!!
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 88.dp),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 8.dp,
-                shadowElevation = 10.dp,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .testTag("floating_popover_bar")
-            ) {
-                Row(
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = popoverWord,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
-                    }
-
-                    FilterChip(
-                        selected = false,
-                        onClick = { viewModel.performLocalMdictLookup(popoverWord) },
-                        label = { Text("📖 MDX 离线词典", fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-                    )
-
-                    FilterChip(
-                        selected = false,
-                        onClick = { viewModel.launchDictLookup(context, popoverWord, DictAppOption.EUDIC) },
-                        label = { Text("📘 欧路词典", fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-                    )
-
-                    FilterChip(
-                        selected = false,
-                        onClick = { viewModel.launchDictLookup(context, popoverWord, DictAppOption.GOOGLE_TRANSLATE) },
-                        label = { Text("🌐 谷歌翻译", fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-                    )
-
-                    FilterChip(
-                        selected = false,
-                        onClick = { viewModel.copyWordToClipboard(context, popoverWord) },
-                        label = { Text("📋 复制", fontSize = 13.sp) }
-                    )
-
-                    FilterChip(
-                        selected = false,
-                        onClick = { viewModel.pronounceWord(popoverWord) },
-                        label = { Text("🔊 发音", fontSize = 13.sp) }
-                    )
-
-                    IconButton(
-                        onClick = { viewModel.dismissPopover() },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "关闭",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
+        MoonReaderPopoverMenu(
+            word = popoverWord,
+            uiState = uiState,
+            viewModel = viewModel,
+            onDismiss = { viewModel.dismissPopover() }
+        )
     }
 }
 
@@ -489,25 +433,6 @@ private fun VibrantHeaderBar(
             }
         },
         actions = {
-            if (hasRecentBooks) {
-                IconButton(
-                    onClick = onRecentBooksClick,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .testTag("header_recent_books_btn")
-                ) {
-                    Icon(
-                        Icons.Default.MenuBook,
-                        contentDescription = "最近阅读书籍",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-            }
-
             IconButton(
                 onClick = onUploadClick,
                 modifier = Modifier
@@ -909,13 +834,29 @@ private fun VibrantSentenceItem(
                                 uiState.activePopoverWord == cleanTrimmed &&
                                 cleanTrimmed.isNotEmpty()
 
+                        var wordBoxBounds by remember { mutableStateOf<Rect?>(null) }
+
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(if (isPopoverActive) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .onGloballyPositioned { layoutCoordinates ->
+                                    val position = layoutCoordinates.positionInWindow()
+                                    val size = layoutCoordinates.size
+                                    wordBoxBounds = Rect(
+                                        left = position.x,
+                                        top = position.y,
+                                        right = position.x + size.width,
+                                        bottom = position.y + size.height
+                                    )
+                                }
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.lookupWord(context, trimmed)
+                                    viewModel.lookupWord(
+                                        context = context,
+                                        word = trimmed,
+                                        clickedBounds = wordBoxBounds
+                                    )
                                 }
                                 .padding(horizontal = 3.dp, vertical = 2.dp)
                         ) {
@@ -1255,7 +1196,7 @@ private fun VibrantFooterPlayerBar(
                         )
                         listOf(15, 30, 45, 60).forEach { mins ->
                             DropdownMenuItem(
-                                text = { Text(if (mins == 30) "30 分钟 (默认)" else "$mins 分钟") },
+                                text = { Text(if (mins == 30) "30 (默认)" else "$mins") },
                                 leadingIcon = {
                                     if (uiState.sleepTimerMinutes == mins) {
                                         Icon(Icons.Default.Check, contentDescription = null)
@@ -1447,30 +1388,6 @@ private fun VibrantFooterPlayerBar(
                         },
                         onClick = {
                             onSelectSpeaker(2)
-                            isSpeakerMenuOpen = false
-                        }
-                    )
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                    // Round-robin rotation mode
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                if (uiState.multiSpeakerEnabled) "关闭 3 位发音人轮流朗读" else "开启 3 位发音人轮流朗读",
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.SyncAlt,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        onClick = {
-                            onToggleMultiSpeaker()
                             isSpeakerMenuOpen = false
                         }
                     )
@@ -1758,4 +1675,272 @@ private fun LocalMdictBottomSheet(
         }
     }
 }
+
+/**
+ * Moon+ Reader (静读天下) Style Popover Quick Action Menu:
+ * Displays directly above or below the clicked word as a Popup.
+ * Provides a horizontally scrollable ribbon of icon buttons (词典, 翻译, 朗读, etc.)
+ * without displaying the selected word badge.
+ */
+@Composable
+private fun MoonReaderPopoverMenu(
+    word: String,
+    uiState: ReaderUiState,
+    viewModel: TtsReaderViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val clickedBounds = uiState.activePopoverWordBounds
+
+    val positionProvider = remember(clickedBounds) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize
+            ): IntOffset {
+                val margin = 20
+                val menuWidth = popupContentSize.width
+                val menuHeight = popupContentSize.height
+
+                val wordLeft = clickedBounds?.left?.toInt() ?: anchorBounds.left
+                val wordRight = clickedBounds?.right?.toInt() ?: anchorBounds.right
+                val wordTop = clickedBounds?.top?.toInt() ?: anchorBounds.top
+                val wordBottom = clickedBounds?.bottom?.toInt() ?: anchorBounds.bottom
+                val wordCenterX = (wordLeft + wordRight) / 2
+
+                // Calculate horizontal position centered on the word, clamped inside window margins
+                val preferredX = wordCenterX - (menuWidth / 2)
+                val clampedX = preferredX.coerceIn(margin, (windowSize.width - menuWidth - margin).coerceAtLeast(margin))
+
+                // Determine whether to place above or below
+                // Preferred: above the word
+                val spaceAbove = wordTop
+                val spaceBelow = windowSize.height - wordBottom
+
+                val y = if (spaceAbove >= menuHeight + margin) {
+                    // Place above word
+                    wordTop - menuHeight - 12
+                } else if (spaceBelow >= menuHeight + margin) {
+                    // Place below word
+                    wordBottom + 12
+                } else {
+                    // Center in remaining window area or fallback
+                    if (spaceBelow > spaceAbove) wordBottom + 8 else (wordTop - menuHeight - 8).coerceAtLeast(margin)
+                }
+
+                return IntOffset(clampedX, y.coerceIn(margin, (windowSize.height - menuHeight - margin).coerceAtLeast(margin)))
+            }
+        }
+    }
+
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            tonalElevation = 12.dp,
+            shadowElevation = 14.dp,
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+            ),
+            modifier = Modifier
+                .padding(horizontal = 12.dp)
+                .testTag("floating_popover_bar")
+        ) {
+            Row(
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 1. Primary Dict: Custom App (if configured)
+                if (uiState.customDictAppName != null) {
+                    MoonReaderMenuAction(
+                        icon = Icons.Default.Book,
+                        label = uiState.customDictAppName,
+                        highlight = true,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.launchDictLookup(context, word, DictAppOption.CUSTOM_APP)
+                        }
+                    )
+                }
+
+                // 2. Primary Dict: Eudic (欧路词典)
+                MoonReaderMenuAction(
+                    icon = Icons.Default.Book,
+                    label = "欧路词典",
+                    highlight = uiState.customDictAppName == null,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.launchDictLookup(context, word, DictAppOption.EUDIC)
+                    }
+                )
+
+                // 3. Translation (Google Translate / System)
+                MoonReaderMenuAction(
+                    icon = Icons.Default.Language,
+                    label = "翻译",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.launchDictLookup(context, word, DictAppOption.GOOGLE_TRANSLATE)
+                    }
+                )
+
+                // 4. Local MDict offline dictionary (if loaded)
+                if (uiState.mdictMdxUri != null) {
+                    MoonReaderMenuAction(
+                        icon = Icons.Default.MenuBook,
+                        label = "离线词典",
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.performLocalMdictLookup(word)
+                        }
+                    )
+                }
+
+                // 5. Pronounce / TTS Speak
+                MoonReaderMenuAction(
+                    icon = Icons.Default.VolumeUp,
+                    label = "朗读",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.pronounceWord(word)
+                    }
+                )
+
+                // 6. Copy text
+                MoonReaderMenuAction(
+                    icon = Icons.Default.ContentCopy,
+                    label = "复制",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.copyWordToClipboard(context, word)
+                    }
+                )
+
+                // 7. Web Search (Google)
+                MoonReaderMenuAction(
+                    icon = Icons.Default.Search,
+                    label = "搜索",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.searchWeb(context, word)
+                    }
+                )
+
+                // 8. Sentence Inspection / Words analysis
+                val currentSentence = if (uiState.currentIndex in uiState.sentences.indices) {
+                    uiState.sentences[uiState.currentIndex]
+                } else null
+                if (currentSentence != null) {
+                    MoonReaderMenuAction(
+                        icon = Icons.Default.EditNote,
+                        label = "整句分词",
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.dismissPopover()
+                            viewModel.openSentenceInspection(currentSentence)
+                        }
+                    )
+                }
+
+                // 9. Share
+                MoonReaderMenuAction(
+                    icon = Icons.Default.Share,
+                    label = "分享",
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.shareText(context, word)
+                    }
+                )
+
+                VerticalDivider(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .padding(horizontal = 2.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                // 10. Dismiss / Close Button
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "关闭",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Individual Moon+ Reader Style Menu Action Item:
+ * Compact vertical pill icon + text label, with touch feedback and clean aesthetics.
+ */
+@Composable
+private fun MoonReaderMenuAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    highlight: Boolean = false,
+    onClick: () -> Unit
+) {
+    val bgColor = if (highlight) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    } else {
+        Color.Transparent
+    }
+    val contentColor = if (highlight) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = bgColor,
+        modifier = Modifier.padding(horizontal = 1.dp)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = contentColor,
+                modifier = Modifier.size(19.dp)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = if (highlight) FontWeight.Bold else FontWeight.Medium,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 

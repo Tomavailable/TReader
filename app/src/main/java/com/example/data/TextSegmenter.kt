@@ -16,6 +16,10 @@ enum class SplitMode(val title: String, val description: String) {
 
 object TextSegmenter {
 
+    val DEFAULT_SECONDARY_PUNCTS = setOf('，', ',', '；', ';', '：', ':', '、', '—')
+    val DEFAULT_TERMINATOR_PUNCTS = setOf('。', '？', '！', '…', '.', '?', '!')
+    val DEFAULT_CLOSING_PUNCTS = setOf('"', '\'', '”', '’', '）', ')', ']', '}', '】')
+
     private val ABBREVIATIONS = setOf(
         "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "vs", "etc", "e.g", "i.e",
         "st", "co", "inc", "ltd", "jan", "feb", "mar", "apr", "aug", "sept", "oct",
@@ -23,22 +27,26 @@ object TextSegmenter {
     )
 
     /**
-     * Splits raw text into sentences based on the chosen [splitMode] and optional [isSplitEnabled].
+     * Splits raw text into sentences based on the chosen [splitMode], optional [isSplitEnabled],
+     * and user-customizable punctuation rules.
      */
     fun splitIntoSentences(
         rawText: String,
         splitMode: SplitMode = SplitMode.BREAK_ITERATOR,
-        isSplitEnabled: Boolean = false
+        isSplitEnabled: Boolean = false,
+        secondaryPuncts: Set<Char> = DEFAULT_SECONDARY_PUNCTS,
+        terminatorPuncts: Set<Char> = DEFAULT_TERMINATOR_PUNCTS,
+        closingPuncts: Set<Char> = DEFAULT_CLOSING_PUNCTS
     ): List<String> {
         if (rawText.isBlank()) return emptyList()
 
         val baseSentences = when (splitMode) {
-            SplitMode.BREAK_ITERATOR -> splitWithBreakIterator(rawText)
-            SplitMode.FULL_SENTENCE -> splitWithLongSentenceParser(rawText)
+            SplitMode.BREAK_ITERATOR -> splitWithBreakIterator(rawText, terminatorPuncts, closingPuncts)
+            SplitMode.FULL_SENTENCE -> splitWithLongSentenceParser(rawText, terminatorPuncts, closingPuncts)
         }
 
         return if (isSplitEnabled) {
-            applySecondarySplitIfNeeded(baseSentences)
+            applySecondarySplitIfNeeded(baseSentences, secondaryPuncts)
         } else {
             baseSentences
         }
@@ -57,38 +65,28 @@ object TextSegmenter {
 
     /**
      * Secondary splitting on long sentences when [isSplitEnabled] is true.
-     * Rules:
-     * - Secondary punctuation marks: ，, ；; ：: 、 —
-     * - Case 1: Length <= 80
-     *   - If punctuation exists in character index range 20..59 (21st to 60th character),
-     *     split into 2 parts at the punctuation closest to middle (length / 2).
-     *   - Otherwise, do NOT split.
-     * - Case 2: 80 < Length <= 150
-     *   - Find the punctuation closest to middle (length / 2).
-     *   - If found, split into 2 parts.
-     *   - Otherwise, do NOT split.
-     * - Case 3: Length > 150
-     *   - Split into AT MOST 3 parts (never more than 3).
-     *   - Find 2 punctuation marks closest to length/3 and 2*length/3.
-     *   - If only 1 punctuation mark exists, split into 2 parts.
-     *   - If no punctuation mark exists, do NOT split.
      */
-    private fun applySecondarySplitIfNeeded(sentences: List<String>): List<String> {
+    private fun applySecondarySplitIfNeeded(
+        sentences: List<String>,
+        secondaryPuncts: Set<Char> = DEFAULT_SECONDARY_PUNCTS
+    ): List<String> {
         if (sentences.isEmpty()) return sentences
 
         val result = mutableListOf<String>()
         for (sentence in sentences) {
-            val subSegments = splitSingleSentenceByLength(sentence)
+            val subSegments = splitSingleSentenceByLength(sentence, secondaryPuncts)
             result.addAll(subSegments)
         }
         return result
     }
 
-    private fun splitSingleSentenceByLength(sentence: String): List<String> {
+    private fun splitSingleSentenceByLength(
+        sentence: String,
+        subPuncts: Set<Char> = DEFAULT_SECONDARY_PUNCTS
+    ): List<String> {
         val len = sentence.length
-        if (len <= 20) return listOf(sentence)
-
-        val subPuncts = setOf('，', ',', '；', ';', '：', ':', '、', '—')
+        // 规则 1: 长度 ≤ 30 字符：保持整句中间有标点也不拆
+        if (len <= 30) return listOf(sentence)
 
         val punctIndices = mutableListOf<Int>()
         for (i in 0 until len) {
@@ -101,14 +99,10 @@ object TextSegmenter {
             return listOf(sentence)
         }
 
-        // Case 1: Length <= 80
+        // 规则 2: 31 ~ 80 字符：最靠近中间的标点，拆分为 2 段
         if (len <= 80) {
-            val eligible = punctIndices.filter { it in 20..59 }
-            if (eligible.isEmpty()) {
-                return listOf(sentence)
-            }
             val mid = len / 2
-            val bestIdx = eligible.minByOrNull { kotlin.math.abs(it - mid) } ?: return listOf(sentence)
+            val bestIdx = punctIndices.minByOrNull { kotlin.math.abs(it - mid) } ?: return listOf(sentence)
             val part1 = cleanAndFormatSentence(sentence.substring(0, bestIdx + 1))
             val part2 = cleanAndFormatSentence(sentence.substring(bestIdx + 1))
             val res = mutableListOf<String>()
@@ -117,7 +111,7 @@ object TextSegmenter {
             return if (res.isEmpty()) listOf(sentence) else res
         }
 
-        // Case 2: 80 < Length <= 150
+        // 规则 3: 81 ~ 150 字符：寻找最接近正中点的标点，拆分为 2 段
         if (len <= 150) {
             val mid = len / 2
             val bestIdx = punctIndices.minByOrNull { kotlin.math.abs(it - mid) } ?: return listOf(sentence)
@@ -129,7 +123,7 @@ object TextSegmenter {
             return if (res.isEmpty()) listOf(sentence) else res
         }
 
-        // Case 3: Length > 150 (At most 3 parts)
+        // 规则 4: 150 字符以上：在整句的 1/3 和 2/3 位置附近寻找最合适的标点，最多平滑拆分为 3 段，避免单卡片阅读负担过重
         val target1 = len / 3
         val target2 = (len * 2) / 3
 
@@ -194,7 +188,11 @@ object TextSegmenter {
      * Strategy 1: java.text.BreakIterator for international sentence boundary detection,
      * enhanced with full rule avoidance (decimals, URLs, abbreviations, single newlines).
      */
-    private fun splitWithBreakIterator(rawText: String): List<String> {
+    private fun splitWithBreakIterator(
+        rawText: String,
+        terminatorPuncts: Set<Char> = DEFAULT_TERMINATOR_PUNCTS,
+        closingPuncts: Set<Char> = DEFAULT_CLOSING_PUNCTS
+    ): List<String> {
         val paragraphs = rawText.split(Regex("(\r?\n){2,}"))
         val result = mutableListOf<String>()
 
@@ -213,7 +211,7 @@ object TextSegmenter {
 
             while (end != BreakIterator.DONE) {
                 val chunk = smoothedParagraph.substring(start, end).trim()
-                if (chunk.isNotEmpty() && !isOnlyPunctuationOrWhitespace(chunk)) {
+                if (chunk.isNotEmpty() && !isOnlyPunctuationOrWhitespace(chunk, terminatorPuncts, closingPuncts)) {
                     rawChunks.add(chunk)
                 }
                 start = end
@@ -221,16 +219,17 @@ object TextSegmenter {
             }
 
             // Post-merge pass to handle decimals (3.14), URLs (open.ai), abbreviations (Dr. Smith)
+            // and keep trailing closing quote/bracket with the preceding sentence
             val mergedChunks = mutableListOf<String>()
             var idx = 0
             while (idx < rawChunks.size) {
                 var current = rawChunks[idx]
-                while (idx + 1 < rawChunks.size && shouldMergeWithNext(current, rawChunks[idx + 1])) {
+                while (idx + 1 < rawChunks.size && shouldMergeWithNext(current, rawChunks[idx + 1], closingPuncts)) {
                     current = cleanAndFormatSentence("$current ${rawChunks[idx + 1]}")
                     idx++
                 }
                 val cleaned = cleanAndFormatSentence(current)
-                if (cleaned.isNotEmpty() && !isOnlyPunctuationOrWhitespace(cleaned)) {
+                if (cleaned.isNotEmpty() && !isOnlyPunctuationOrWhitespace(cleaned, terminatorPuncts, closingPuncts)) {
                     mergedChunks.add(cleaned)
                 }
                 idx++
@@ -249,7 +248,11 @@ object TextSegmenter {
      * 3. Respects double newlines (\n\n) as paragraph boundaries.
      * 4. Ignores decimals (3.14), URLs (google.com, open.ai), and abbreviations (Dr. Smith, U.S.A.).
      */
-    private fun splitWithLongSentenceParser(rawText: String): List<String> {
+    private fun splitWithLongSentenceParser(
+        rawText: String,
+        terminatorPuncts: Set<Char> = DEFAULT_TERMINATOR_PUNCTS,
+        closingPuncts: Set<Char> = DEFAULT_CLOSING_PUNCTS
+    ): List<String> {
         val paragraphs = rawText.split(Regex("(\r?\n){2,}"))
         val result = mutableListOf<String>()
 
@@ -257,14 +260,18 @@ object TextSegmenter {
             val trimmedP = p.trim()
             if (trimmedP.isEmpty()) continue
 
-            val sentencesInParagraph = splitParagraphIntoSentences(trimmedP)
+            val sentencesInParagraph = splitParagraphIntoSentences(trimmedP, terminatorPuncts, closingPuncts)
             result.addAll(sentencesInParagraph)
         }
 
         return if (result.isEmpty()) splitByLines(rawText) else result
     }
 
-    private fun splitParagraphIntoSentences(paragraph: String): List<String> {
+    private fun splitParagraphIntoSentences(
+        paragraph: String,
+        terminatorPuncts: Set<Char> = DEFAULT_TERMINATOR_PUNCTS,
+        closingPuncts: Set<Char> = DEFAULT_CLOSING_PUNCTS
+    ): List<String> {
         if (paragraph.isBlank()) return emptyList()
 
         val text = cleanAndFormatSentence(paragraph)
@@ -278,18 +285,7 @@ object TextSegmenter {
             val ch = text[i]
             current.append(ch)
 
-            // Chinese terminators: 。 ？！ …
-            if (ch == '।' || ch == '？' || ch == '！' || ch == '…') {
-                while (i + 1 < len && "'\"”’）)]}】".contains(text[i + 1])) {
-                    i++
-                    current.append(text[i])
-                }
-                val s = cleanAndFormatSentence(current.toString())
-                if (s.isNotEmpty() && !isOnlyPunctuationOrWhitespace(s)) {
-                    sentences.add(s)
-                }
-                current.clear()
-            } else if (ch == '.' || ch == '?' || ch == '!') {
+            if (terminatorPuncts.contains(ch)) {
                 var isSentenceEnd = true
 
                 if (ch == '.') {
@@ -321,19 +317,20 @@ object TextSegmenter {
                     // Check Rule 4: Standard sentence dot should be followed by whitespace, closing bracket/quote, or end
                     if (isSentenceEnd && i + 1 < len) {
                         val nextChar = text[i + 1]
-                        if (!nextChar.isWhitespace() && !"'\"”’）)]}】".contains(nextChar)) {
+                        if (!nextChar.isWhitespace() && !closingPuncts.contains(nextChar)) {
                             isSentenceEnd = false
                         }
                     }
                 }
 
                 if (isSentenceEnd) {
-                    while (i + 1 < len && "'\"”’）)]}】".contains(text[i + 1])) {
+                    // Evasion rule: attach closing quotes/brackets to current sentence
+                    while (i + 1 < len && closingPuncts.contains(text[i + 1])) {
                         i++
                         current.append(text[i])
                     }
                     val s = cleanAndFormatSentence(current.toString())
-                    if (s.isNotEmpty() && !isOnlyPunctuationOrWhitespace(s)) {
+                    if (s.isNotEmpty() && !isOnlyPunctuationOrWhitespace(s, terminatorPuncts, closingPuncts)) {
                         sentences.add(s)
                     }
                     current.clear()
@@ -344,7 +341,7 @@ object TextSegmenter {
 
         if (current.isNotBlank()) {
             val s = cleanAndFormatSentence(current.toString())
-            if (s.isNotEmpty() && !isOnlyPunctuationOrWhitespace(s)) {
+            if (s.isNotEmpty() && !isOnlyPunctuationOrWhitespace(s, terminatorPuncts, closingPuncts)) {
                 sentences.add(s)
             }
         }
@@ -352,8 +349,19 @@ object TextSegmenter {
         return sentences
     }
 
-    private fun shouldMergeWithNext(currentChunk: String, nextChunk: String): Boolean {
+    private fun shouldMergeWithNext(
+        currentChunk: String,
+        nextChunk: String,
+        closingPuncts: Set<Char> = DEFAULT_CLOSING_PUNCTS
+    ): Boolean {
         if (currentChunk.isEmpty() || nextChunk.isEmpty()) return false
+
+        // If next chunk starts with a closing quote/bracket, merge it with previous
+        val nextFirstChar = nextChunk.trimStart().firstOrNull()
+        if (nextFirstChar != null && closingPuncts.contains(nextFirstChar)) {
+            return true
+        }
+
         val trimmedCurrent = currentChunk.trimEnd()
         if (!trimmedCurrent.endsWith('.')) return false
 
@@ -391,7 +399,12 @@ object TextSegmenter {
         }
     }
 
-    private fun isOnlyPunctuationOrWhitespace(text: String): Boolean {
-        return text.all { it.isWhitespace() || "。？！.?!…，,；;：:\"'“”‘’（）()[]【】".contains(it) }
+    private fun isOnlyPunctuationOrWhitespace(
+        text: String,
+        terminatorPuncts: Set<Char> = DEFAULT_TERMINATOR_PUNCTS,
+        closingPuncts: Set<Char> = DEFAULT_CLOSING_PUNCTS
+    ): Boolean {
+        val allSymbols = terminatorPuncts + closingPuncts + DEFAULT_SECONDARY_PUNCTS
+        return text.all { it.isWhitespace() || allSymbols.contains(it) }
     }
 }

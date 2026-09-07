@@ -2,28 +2,39 @@ package com.example.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
@@ -39,10 +50,14 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Spellcheck
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -50,6 +65,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -57,10 +73,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -70,6 +89,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -222,9 +243,13 @@ fun SettingsBottomSheet(
                     speakerNumber = 1,
                     label = "常用发音人 1 (主音)",
                     selectedVoiceId = uiState.speaker1VoiceId,
+                    rate = uiState.speaker1Rate,
+                    pitch = uiState.speaker1Pitch,
                     voices = voices,
                     selectedLanguage = uiState.selectedLanguage,
                     onSelectVoice = { viewModel.setSpeakerVoice(0, it) },
+                    onRateChange = { viewModel.setSpeakerRate(0, it) },
+                    onPitchChange = { viewModel.setSpeakerPitch(0, it) },
                     onAudition = { viewModel.testVoice(0) }
                 )
 
@@ -233,9 +258,13 @@ fun SettingsBottomSheet(
                     speakerNumber = 2,
                     label = "常用发音人 2",
                     selectedVoiceId = uiState.speaker2VoiceId,
+                    rate = uiState.speaker2Rate,
+                    pitch = uiState.speaker2Pitch,
                     voices = voices,
                     selectedLanguage = uiState.selectedLanguage,
                     onSelectVoice = { viewModel.setSpeakerVoice(1, it) },
+                    onRateChange = { viewModel.setSpeakerRate(1, it) },
+                    onPitchChange = { viewModel.setSpeakerPitch(1, it) },
                     onAudition = { viewModel.testVoice(1) }
                 )
 
@@ -244,124 +273,17 @@ fun SettingsBottomSheet(
                     speakerNumber = 3,
                     label = "常用发音人 3",
                     selectedVoiceId = uiState.speaker3VoiceId,
+                    rate = uiState.speaker3Rate,
+                    pitch = uiState.speaker3Pitch,
                     voices = voices,
                     selectedLanguage = uiState.selectedLanguage,
                     onSelectVoice = { viewModel.setSpeakerVoice(2, it) },
+                    onRateChange = { viewModel.setSpeakerRate(2, it) },
+                    onPitchChange = { viewModel.setSpeakerPitch(2, it) },
                     onAudition = { viewModel.testVoice(2) }
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Speech rate adjustment
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Speed,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "朗读语速",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Text(
-                        text = "${String.format("%.2f", uiState.speechRate)}x",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Slider(
-                    value = uiState.speechRate,
-                    onValueChange = { viewModel.setSpeechRate(it) },
-                    valueRange = 0.5f..2.5f,
-                    steps = 19,
-                    modifier = Modifier.testTag("speech_rate_slider")
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    listOf(
-                        0.85f to "0.85",
-                        0.9f to "0.9",
-                        0.95f to "0.95",
-                        1.05f to "1.05",
-                        1.1f to "1.1",
-                        1.2f to "1.2"
-                    ).forEach { (r, lbl) ->
-                        val isSelected = kotlin.math.abs(uiState.speechRate - r) < 0.02f
-                        OutlinedButton(
-                            onClick = { viewModel.setSpeechRate(r) },
-                            colors = if (isSelected) {
-                                ButtonDefaults.outlinedButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            } else {
-                                ButtonDefaults.outlinedButtonColors()
-                             },
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                            modifier = Modifier
-                                .height(28.dp)
-                                .testTag("rate_preset_$lbl")
-                        ) {
-                            Text(lbl, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                        }
-                    }
-                }
-
                 Spacer(modifier = Modifier.height(14.dp))
-
-                // Pitch adjustment
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.GraphicEq,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "朗读音调",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Text(
-                        text = "${String.format("%.2f", uiState.pitch)}x",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Slider(
-                    value = uiState.pitch,
-                    onValueChange = { viewModel.setPitch(it) },
-                    valueRange = 0.5f..2.0f,
-                    steps = 14,
-                    modifier = Modifier.testTag("speech_pitch_slider")
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 // Loop repeat count
                 Text(
@@ -401,7 +323,7 @@ fun SettingsBottomSheet(
             // ==========================================
             ExpandableSettingSection(
                 title = "词典设置",
-                subtitle = "查词交互方案、内置 MDX 词典与自动发音",
+                subtitle = "查词交互方案、外部词典调用与自动发音",
                 icon = {
                     Icon(
                         Icons.Default.Translate,
@@ -412,15 +334,6 @@ fun SettingsBottomSheet(
                 },
                 initiallyExpanded = false
             ) {
-                val context = androidx.compose.ui.platform.LocalContext.current
-                val mdxPickerLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.OpenDocument()
-                ) { uri ->
-                    if (uri != null) {
-                        viewModel.setMdictFile(context, uri)
-                    }
-                }
-
                 Text(
                     text = "查词响应模式：",
                     style = MaterialTheme.typography.labelMedium,
@@ -449,41 +362,6 @@ fun SettingsBottomSheet(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = "📂 外挂 / 本地 MDX 离线词典配置：",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        try {
-                            mdxPickerLauncher.launch(arrayOf("*/*"))
-                        } catch (e: Exception) {
-                            android.widget.Toast.makeText(context, "无法打开文件选择器", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("select_mdx_btn"),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(
-                        Icons.Default.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (uiState.mdictMdxUri != null) "已选择: ${uiState.mdictMdxFileName}" else "选择手机本地 .mdx 词典文件",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
                     text = "🔊 查词自动朗读与默认发音：",
@@ -536,49 +414,219 @@ fun SettingsBottomSheet(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
+                var isEudicExpanded by remember { mutableStateOf(false) }
+                var showAppPickerDialog by remember { mutableStateOf(false) }
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    DictAppOption.entries.forEach { app ->
-                        FilterChip(
-                            selected = uiState.defaultDictApp == app,
-                            onClick = { viewModel.setDefaultDictApp(app) },
-                            label = {
-                                Text(app.label, fontWeight = if (uiState.defaultDictApp == app) FontWeight.Bold else FontWeight.Normal)
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("default_dict_${app.name}")
-                        )
-
-                        if (app == DictAppOption.EUDIC && uiState.defaultDictApp == DictAppOption.EUDIC) {
-                            Column(
+                    // 1. 欧路词典 (默认) - 点击最右边三角形图标展开或折叠小窗方案
+                    val isEudicSelected = uiState.defaultDictApp == DictAppOption.EUDIC
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isEudicSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        border = if (isEudicSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(start = 12.dp, top = 2.dp, bottom = 6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    .clickable { viewModel.setDefaultDictApp(DictAppOption.EUDIC) }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = "欧路词典小窗调起方案：",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                EudicInvokeMode.entries.forEach { mode ->
-                                    FilterChip(
-                                        selected = uiState.eudicInvokeMode == mode,
-                                        onClick = { viewModel.setEudicInvokeMode(mode) },
-                                        label = {
-                                            Column(modifier = Modifier.padding(vertical = 2.dp)) {
-                                                Text(mode.title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                                Text(mode.desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth().testTag("eudic_mode_${mode.name}")
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    RadioButton(
+                                        selected = isEudicSelected,
+                                        onClick = { viewModel.setDefaultDictApp(DictAppOption.EUDIC) }
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column {
+                                        Text("欧路词典 (默认)", fontWeight = if (isEudicSelected) FontWeight.Bold else FontWeight.Normal)
+                                        Text(
+                                            text = "调起模式: ${uiState.eudicInvokeMode.title.substringBefore("：")}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                // 最右边三角形图标展开或折叠
+                                IconButton(
+                                    onClick = { isEudicExpanded = !isEudicExpanded },
+                                    modifier = Modifier.size(36.dp).testTag("eudic_expand_triangle_btn")
+                                ) {
+                                    Icon(
+                                        imageVector = if (isEudicExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                        contentDescription = if (isEudicExpanded) "折叠欧路词典方案" else "展开欧路词典方案",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+
+                            AnimatedVisibility(visible = isEudicExpanded) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(bottom = 6.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                    )
+                                    Text(
+                                        text = "欧路词典小窗调起方案选择：",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    EudicInvokeMode.entries.forEach { mode ->
+                                        FilterChip(
+                                            selected = uiState.eudicInvokeMode == mode,
+                                            onClick = { viewModel.setEudicInvokeMode(mode) },
+                                            label = {
+                                                Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                                    Text(mode.title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                                    Text(mode.desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth().testTag("eudic_mode_${mode.name}")
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+
+                    // 2. 谷歌翻译
+                    val isGoogleSelected = uiState.defaultDictApp == DictAppOption.GOOGLE_TRANSLATE
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isGoogleSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        border = if (isGoogleSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.setDefaultDictApp(DictAppOption.GOOGLE_TRANSLATE) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isGoogleSelected,
+                                onClick = { viewModel.setDefaultDictApp(DictAppOption.GOOGLE_TRANSLATE) }
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("谷歌翻译", fontWeight = if (isGoogleSelected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+
+                    // 3. 自定义词典软件 (选取手机上已经安装的其他软件)
+                    val isCustomSelected = uiState.defaultDictApp == DictAppOption.CUSTOM_APP
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isCustomSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        border = if (isCustomSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setDefaultDictApp(DictAppOption.CUSTOM_APP)
+                                    if (uiState.customDictPackageName == null) {
+                                        showAppPickerDialog = true
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                RadioButton(
+                                    selected = isCustomSelected,
+                                    onClick = {
+                                        viewModel.setDefaultDictApp(DictAppOption.CUSTOM_APP)
+                                        if (uiState.customDictPackageName == null) {
+                                            showAppPickerDialog = true
+                                        }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text("自定义词典软件", fontWeight = if (isCustomSelected) FontWeight.Bold else FontWeight.Normal)
+                                    Text(
+                                        text = if (uiState.customDictAppName != null) "已选: ${uiState.customDictAppName}" else "选取手机已安装的任意词典/翻译应用",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = { showAppPickerDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp).testTag("select_custom_app_btn")
+                            ) {
+                                Text(if (uiState.customDictAppName != null) "更换" else "选取软件", fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    // 4. 系统通用划词
+                    val isSystemSelected = uiState.defaultDictApp == DictAppOption.SYSTEM_CHOOSER
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSystemSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        border = if (isSystemSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.setDefaultDictApp(DictAppOption.SYSTEM_CHOOSER) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSystemSelected,
+                                onClick = { viewModel.setDefaultDictApp(DictAppOption.SYSTEM_CHOOSER) }
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("系统通用划词", fontWeight = if (isSystemSelected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+
+                if (showAppPickerDialog) {
+                    InstalledAppPickerDialog(
+                        onDismiss = { showAppPickerDialog = false },
+                        onAppSelected = { pkg, name ->
+                            viewModel.setCustomDictApp(pkg, name)
+                        }
+                    )
                 }
             }
 
@@ -609,10 +657,10 @@ fun SettingsBottomSheet(
 
                 val sleepOptions = listOf(
                     0 to "关闭",
-                    15 to "15分钟",
-                    30 to "30分钟",
-                    45 to "45分钟",
-                    60 to "60分钟"
+                    15 to "15",
+                    30 to "30",
+                    45 to "45",
+                    60 to "60"
                 )
 
                 Row(
@@ -655,29 +703,29 @@ fun SettingsBottomSheet(
                     FilterChip(
                         selected = uiState.themeMode == ThemeMode.SYSTEM,
                         onClick = { viewModel.setThemeMode(ThemeMode.SYSTEM) },
-                        label = { Text("跟随系统") },
+                        label = { Text("自动", fontSize = 12.sp) },
                         leadingIcon = {
-                            Icon(Icons.Default.BrightnessAuto, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.BrightnessAuto, contentDescription = null, modifier = Modifier.size(15.dp))
                         },
-                        modifier = Modifier.testTag("theme_chip_system")
-                    )
-                    FilterChip(
-                        selected = uiState.themeMode == ThemeMode.LIGHT,
-                        onClick = { viewModel.setThemeMode(ThemeMode.LIGHT) },
-                        label = { Text("日间模式") },
-                        leadingIcon = {
-                            Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(16.dp))
-                        },
-                        modifier = Modifier.testTag("theme_chip_light")
+                        modifier = Modifier.weight(1f).testTag("theme_chip_system")
                     )
                     FilterChip(
                         selected = uiState.themeMode == ThemeMode.DARK,
                         onClick = { viewModel.setThemeMode(ThemeMode.DARK) },
-                        label = { Text("夜间模式") },
+                        label = { Text("夜间", fontSize = 12.sp) },
                         leadingIcon = {
-                            Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(15.dp))
                         },
-                        modifier = Modifier.testTag("theme_chip_dark")
+                        modifier = Modifier.weight(1f).testTag("theme_chip_dark")
+                    )
+                    FilterChip(
+                        selected = uiState.themeMode == ThemeMode.LIGHT,
+                        onClick = { viewModel.setThemeMode(ThemeMode.LIGHT) },
+                        label = { Text("日间", fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(15.dp))
+                        },
+                        modifier = Modifier.weight(1f).testTag("theme_chip_light")
                     )
                 }
             }
@@ -779,6 +827,58 @@ fun SettingsBottomSheet(
                             )
                         }
                     }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Text(
+                        text = "⚙️ 自定义标点与规避符号规则",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "您可以自由增加或删除断句和拆分时的标点符号，也可以增删用于规避被分离的闭合后置引号与括号符号。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    CustomPunctRuleSection(
+                        title = "1. 二次拆分标点 (长句中顿符号)",
+                        desc = "开启二次拆分时，在此类标点处平分或三等分长句",
+                        puncts = uiState.secondaryPuncts,
+                        onAdd = { viewModel.addSecondaryPunct(it) },
+                        onRemove = { viewModel.removeSecondaryPunct(it) }
+                    )
+
+                    CustomPunctRuleSection(
+                        title = "2. 句末包裹规避符号 (后引号/括号)",
+                        desc = "紧随句末标点后的符号，规避将其与句子提前截断分离",
+                        puncts = uiState.closingPuncts,
+                        onAdd = { viewModel.addClosingPunct(it) },
+                        onRemove = { viewModel.removeClosingPunct(it) }
+                    )
+
+                    CustomPunctRuleSection(
+                        title = "3. 主断句终止符 (长句模式断句标点)",
+                        desc = "作为一句话终点依据的主标点符号",
+                        puncts = uiState.terminatorPuncts,
+                        onAdd = { viewModel.addTerminatorPunct(it) },
+                        onRemove = { viewModel.removeTerminatorPunct(it) }
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = { viewModel.resetPunctuationRules() }
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("恢复默认符号规则", fontSize = 12.sp)
+                        }
+                    }
                 }
             }
 
@@ -833,13 +933,13 @@ fun SettingsBottomSheet(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                     Text(
-                        text = "📚 离线 MDX 词典与生词查词",
+                        text = "📚 词典与生词划词查询",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "· 外挂 MDX 词典：支持选择手机本地 .mdx 词典文件，秒级零延迟查词。\n· 第三方词典调起：支持一键调起欧陆词典等应用内查词小窗。",
+                        text = "· 第三方词典调起：支持一键调起欧路词典等应用内查词小窗，或绑定手机自定义词典软件。\n· 查词响应模式：支持直接调起小窗或快捷图标工具栏。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
@@ -879,12 +979,17 @@ private fun VoiceSelectorItem(
     speakerNumber: Int,
     label: String,
     selectedVoiceId: String?,
+    rate: Float,
+    pitch: Float,
     voices: List<TtsVoiceItem>,
     selectedLanguage: String,
     onSelectVoice: (String) -> Unit,
+    onRateChange: (Float) -> Unit,
+    onPitchChange: (Float) -> Unit,
     onAudition: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var showAdjustDialog by remember { mutableStateOf(false) }
 
     val filteredVoices = remember(voices, selectedLanguage) {
         if (selectedLanguage == "all") voices else {
@@ -906,12 +1011,24 @@ private fun VoiceSelectorItem(
         shape = RoundedCornerShape(10.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "语速 ${String.format("%.2f", rate)}x · 音调 ${String.format("%.2f", pitch)}x",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Spacer(modifier = Modifier.height(6.dp))
 
             Row(
@@ -982,6 +1099,23 @@ private fun VoiceSelectorItem(
                     }
                 }
 
+                // 设置按钮：只显示设置图标，点击后弹出滑动调节界面
+                FilledTonalIconButton(
+                    onClick = { showAdjustDialog = true },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("voice_tune_btn_$speakerNumber")
+                ) {
+                    Icon(
+                        Icons.Default.Tune,
+                        contentDescription = "调节语速音调",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                // 试听按钮
                 Button(
                     onClick = onAudition,
                     shape = RoundedCornerShape(8.dp),
@@ -1000,6 +1134,277 @@ private fun VoiceSelectorItem(
                 }
             }
         }
+    }
+
+    if (showAdjustDialog) {
+        AlertDialog(
+            onDismissRequest = { showAdjustDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("发音人 $speakerNumber 音效微调", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // 语速调节
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("朗读语速", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            Text("${String.format("%.2f", rate)}x", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Slider(
+                            value = rate,
+                            onValueChange = onRateChange,
+                            valueRange = 0.5f..2.5f,
+                            steps = 19
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            listOf(0.85f to "0.85", 1.0f to "1.0", 1.1f to "1.1", 1.25f to "1.25", 1.5f to "1.5").forEach { (r, lbl) ->
+                                val isSelected = kotlin.math.abs(rate - r) < 0.02f
+                                OutlinedButton(
+                                    onClick = { onRateChange(r) },
+                                    colors = if (isSelected) ButtonDefaults.outlinedButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    ) else ButtonDefaults.outlinedButtonColors(),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(26.dp)
+                                ) {
+                                    Text(lbl, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    // 音调调节
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("朗读音调", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            Text("${String.format("%.2f", pitch)}x", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Slider(
+                            value = pitch,
+                            onValueChange = onPitchChange,
+                            valueRange = 0.5f..2.0f,
+                            steps = 14
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            listOf(0.8f to "0.8低沉", 1.0f to "1.0标准", 1.2f to "1.2清脆", 1.4f to "1.4高亢").forEach { (p, lbl) ->
+                                val isSelected = kotlin.math.abs(pitch - p) < 0.02f
+                                OutlinedButton(
+                                    onClick = { onPitchChange(p) },
+                                    colors = if (isSelected) ButtonDefaults.outlinedButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    ) else ButtonDefaults.outlinedButtonColors(),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(26.dp)
+                                ) {
+                                    Text(lbl, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    // 试听按钮
+                    Button(
+                        onClick = onAudition,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("试听此音效")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showAdjustDialog = false }) {
+                    Text("完成")
+                }
+            }
+        )
+    }
+}
+
+private data class InstalledAppItem(
+    val name: String,
+    val packageName: String,
+    val icon: android.graphics.drawable.Drawable?
+)
+
+@Composable
+private fun InstalledAppPickerDialog(
+    onDismiss: () -> Unit,
+    onAppSelected: (packageName: String, appName: String) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pm = remember { context.packageManager }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val installedApps = remember {
+        try {
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val launcherApps = pm.queryIntentActivities(mainIntent, 0)
+
+            val textIntent = Intent(Intent.ACTION_PROCESS_TEXT).apply {
+                type = "text/plain"
+            }
+            val textApps = pm.queryIntentActivities(textIntent, 0)
+
+            val all = (launcherApps + textApps).distinctBy { it.activityInfo.packageName }
+            all.filter { it.activityInfo.packageName != context.packageName }
+                .map {
+                    InstalledAppItem(
+                        name = it.loadLabel(pm).toString(),
+                        packageName = it.activityInfo.packageName,
+                        icon = try { it.loadIcon(pm) } catch (e: Exception) { null }
+                    )
+                }.sortedBy { it.name.lowercase() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    val filteredApps = remember(installedApps, searchQuery) {
+        if (searchQuery.isBlank()) installedApps
+        else installedApps.filter {
+            it.name.contains(searchQuery, ignoreCase = true) ||
+            it.packageName.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("选择已安装的词典/翻译软件", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(380.dp)
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("搜索软件名称或包名...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                )
+
+                if (filteredApps.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("未找到相关应用", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(filteredApps.size) { index ->
+                            val app = filteredApps[index]
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onAppSelected(app.packageName, app.name)
+                                        onDismiss()
+                                    },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    DrawableAppIcon(
+                                        drawable = app.icon,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(app.name, fontWeight = FontWeight.Bold, maxLines = 1, fontSize = 14.sp)
+                                        Text(app.packageName, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DrawableAppIcon(
+    drawable: android.graphics.drawable.Drawable?,
+    modifier: Modifier = Modifier
+) {
+    val bitmap = remember(drawable) {
+        if (drawable == null) return@remember null
+        try {
+            if (drawable is android.graphics.drawable.BitmapDrawable) {
+                drawable.bitmap.asImageBitmap()
+            } else {
+                val w = drawable.intrinsicWidth.coerceIn(48, 144)
+                val h = drawable.intrinsicHeight.coerceIn(48, 144)
+                val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bmp)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bmp.asImageBitmap()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            modifier = modifier
+        )
+    } else {
+        Icon(
+            imageVector = Icons.Default.Apps,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = modifier
+        )
     }
 }
 
@@ -1077,6 +1482,110 @@ private fun ExpandableSettingSection(
                     HorizontalDivider(modifier = Modifier.padding(bottom = 12.dp))
                     content()
                 }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun CustomPunctRuleSection(
+    title: String,
+    desc: String,
+    puncts: Set<Char>,
+    onAdd: (Char) -> Unit,
+    onRemove: (Char) -> Unit
+) {
+    var inputText by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(10.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = desc,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            puncts.forEach { ch ->
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = ch.toString(),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "删除 $ch",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { onRemove(ch) }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = inputText,
+                onValueChange = { inputText = it },
+                placeholder = { Text("输入要添加的符号", fontSize = 11.sp) },
+                singleLine = true,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp)
+            )
+            Button(
+                onClick = {
+                    inputText.trim().forEach { ch ->
+                        onAdd(ch)
+                    }
+                    inputText = ""
+                },
+                enabled = inputText.trim().isNotEmpty(),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(44.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(2.dp))
+                Text("添加", fontSize = 12.sp)
             }
         }
     }

@@ -5,12 +5,14 @@ import android.content.Intent
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.AppSettingsStore
 import com.example.data.AudioExporter
 import com.example.data.RecentBook
 import com.example.data.RecentBooksStore
 import com.example.data.SplitMode
 import com.example.data.TextSegmenter
 import com.example.data.TtsManager
+import com.example.data.TtsPlaybackService
 import com.example.data.TtsVoiceItem
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -23,11 +25,12 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.geometry.Rect
 
 enum class ThemeMode(val title: String) {
-    SYSTEM("跟随系统"),
-    LIGHT("日间模式"),
-    DARK("夜间模式")
+    SYSTEM("自动"),
+    DARK("夜间"),
+    LIGHT("日间")
 }
 
 enum class ReadingDisplayMode(val label: String, val desc: String) {
@@ -36,8 +39,7 @@ enum class ReadingDisplayMode(val label: String, val desc: String) {
 
 enum class WordLookupMode(val title: String, val desc: String) {
     DIRECT_DICT("方案一：直接调起词典小窗", "点击单词直接弹出词典悬浮小窗（默认：欧路词典）"),
-    POPOVER_MENU("方案二：快捷图标菜单", "点击单词弹出极简横向图标工具栏"),
-    LOCAL_MDX("方案三：内置 MDX 本地词典", "点击单词使用软件内置 MDX 词典小窗查询释义，支持 MDD 离线发音")
+    POPOVER_MENU("方案二：静读天下风格快捷菜单", "点击单词弹出横向可滑动的静读天下风格功能栏（词典、翻译、搜索、朗读、复制、高亮等）")
 }
 
 enum class EudicInvokeMode(val title: String, val desc: String) {
@@ -49,7 +51,7 @@ enum class EudicInvokeMode(val title: String, val desc: String) {
 enum class DictAppOption(val label: String, val packageName: String?) {
     EUDIC("欧路词典 (默认)", "com.eusoft.eudic"),
     GOOGLE_TRANSLATE("谷歌翻译", "com.google.android.apps.translate"),
-    LOCAL_MDX("内置 MDX 离线词典", null),
+    CUSTOM_APP("自定义词典软件", null),
     SYSTEM_CHOOSER("系统通用划词", null)
 }
 
@@ -73,6 +75,9 @@ data class ReaderUiState(
     val splitComma: Boolean = false,
     val isSplitEnabled: Boolean = false, // Default: NOT split
     val splitMode: SplitMode = SplitMode.BREAK_ITERATOR,
+    val secondaryPuncts: Set<Char> = TextSegmenter.DEFAULT_SECONDARY_PUNCTS,
+    val terminatorPuncts: Set<Char> = TextSegmenter.DEFAULT_TERMINATOR_PUNCTS,
+    val closingPuncts: Set<Char> = TextSegmenter.DEFAULT_CLOSING_PUNCTS,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     // Multi-speaker and repeat cycle
     val currentRepeatPass: Int = 1,
@@ -87,6 +92,16 @@ data class ReaderUiState(
     val activeSpeakerIndex: Int = 0, // 0 = Speaker 1, 1 = Speaker 2, 2 = Speaker 3
     val speechRate: Float = 1.0f,
     val pitch: Float = 1.0f,
+    // Per-speaker rate and pitch
+    val speaker1Rate: Float = 1.0f,
+    val speaker1Pitch: Float = 1.0f,
+    val speaker2Rate: Float = 1.0f,
+    val speaker2Pitch: Float = 1.0f,
+    val speaker3Rate: Float = 1.0f,
+    val speaker3Pitch: Float = 1.0f,
+    // Custom dictionary app
+    val customDictPackageName: String? = null,
+    val customDictAppName: String? = null,
     // Sleep Timer (0 = disabled, 15, 30, 45, 60 minutes)
     val sleepTimerMinutes: Int = 0,
     val sleepTimerRemainingSeconds: Int = 0,
@@ -98,6 +113,7 @@ data class ReaderUiState(
     val defaultDictApp: DictAppOption = DictAppOption.EUDIC,
     val eudicInvokeMode: EudicInvokeMode = EudicInvokeMode.EXPLICIT_INTENT,
     val activePopoverWord: String? = null,
+    val activePopoverWordBounds: Rect? = null,
     val selectedSentenceForInspection: String? = null,
     val isSentenceInspectionOpen: Boolean = false,
     // MDX / MDD Local Dict state
@@ -121,6 +137,7 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     val ttsManager = TtsManager(application)
     val audioExporter = AudioExporter(application)
     val recentBooksStore = RecentBooksStore(application)
+    val appSettingsStore = AppSettingsStore(application)
     val mdictParser = com.example.data.MdictParser(application)
 
     private val _uiState = MutableStateFlow(ReaderUiState())
@@ -131,8 +148,103 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     private var utteranceCounter = 0
 
     init {
-        // Load recent books on start
-        _uiState.update { it.copy(recentBooks = recentBooksStore.getRecentBooks()) }
+        // 1. Restore all saved settings
+        val savedS1Voice = appSettingsStore.speaker1VoiceId
+        val savedS2Voice = appSettingsStore.speaker2VoiceId
+        val savedS3Voice = appSettingsStore.speaker3VoiceId
+        val savedS1Rate = appSettingsStore.speaker1Rate
+        val savedS2Rate = appSettingsStore.speaker2Rate
+        val savedS3Rate = appSettingsStore.speaker3Rate
+        val savedS1Pitch = appSettingsStore.speaker1Pitch
+        val savedS2Pitch = appSettingsStore.speaker2Pitch
+        val savedS3Pitch = appSettingsStore.speaker3Pitch
+        val savedActiveSpeaker = appSettingsStore.activeSpeakerIndex
+        val savedMultiSpeaker = appSettingsStore.multiSpeakerEnabled
+        val savedRepeat = appSettingsStore.targetRepeatCount
+        val savedIsSplit = appSettingsStore.isSplitEnabled
+        val savedSplitMode = appSettingsStore.splitMode
+        val savedTheme = appSettingsStore.themeMode
+        val savedDisplayMode = appSettingsStore.readingDisplayMode
+        val savedSecPuncts = appSettingsStore.secondaryPuncts
+        val savedTermPuncts = appSettingsStore.terminatorPuncts
+        val savedClosPuncts = appSettingsStore.closingPuncts
+        val savedLang = appSettingsStore.selectedLanguage
+
+        // 2. Restore recent books and last opened document
+        val recentBooks = recentBooksStore.getRecentBooks()
+        val lastText = appSettingsStore.lastOpenedFullText ?: recentBooks.firstOrNull()?.fullText ?: ""
+        val lastName = appSettingsStore.lastOpenedFileName ?: recentBooks.firstOrNull()?.title ?: "未加载书籍"
+        val lastIdx = appSettingsStore.lastOpenedIndex
+
+        val initialSentences = if (lastText.isNotBlank()) {
+            TextSegmenter.splitIntoSentences(
+                rawText = lastText,
+                splitMode = savedSplitMode,
+                isSplitEnabled = savedIsSplit,
+                secondaryPuncts = savedSecPuncts,
+                terminatorPuncts = savedTermPuncts,
+                closingPuncts = savedClosPuncts
+            )
+        } else {
+            emptyList()
+        }
+        val initialValidIdx = if (initialSentences.isNotEmpty()) {
+            lastIdx.coerceIn(0, initialSentences.size - 1)
+        } else {
+            0
+        }
+
+        _uiState.update {
+            it.copy(
+                recentBooks = recentBooks,
+                rawText = lastText,
+                fileName = lastName,
+                sentences = initialSentences,
+                currentIndex = initialValidIdx,
+                speaker1VoiceId = savedS1Voice,
+                speaker2VoiceId = savedS2Voice,
+                speaker3VoiceId = savedS3Voice,
+                speaker1Rate = savedS1Rate,
+                speaker2Rate = savedS2Rate,
+                speaker3Rate = savedS3Rate,
+                speechRate = savedS1Rate,
+                speaker1Pitch = savedS1Pitch,
+                speaker2Pitch = savedS2Pitch,
+                speaker3Pitch = savedS3Pitch,
+                pitch = savedS1Pitch,
+                activeSpeakerIndex = savedActiveSpeaker,
+                multiSpeakerEnabled = savedMultiSpeaker,
+                targetRepeatCount = savedRepeat,
+                isSplitEnabled = savedIsSplit,
+                splitComma = savedIsSplit,
+                splitMode = savedSplitMode,
+                themeMode = savedTheme,
+                readingDisplayMode = savedDisplayMode,
+                secondaryPuncts = savedSecPuncts,
+                terminatorPuncts = savedTermPuncts,
+                closingPuncts = savedClosPuncts,
+                selectedLanguage = savedLang
+            )
+        }
+
+        // 3. Register Foreground Service Playback Controller
+        TtsPlaybackService.controller = object : TtsPlaybackService.PlaybackController {
+            override fun onActionPrev() {
+                playPrevious()
+            }
+
+            override fun onActionTogglePlayPause() {
+                togglePlayPause()
+            }
+
+            override fun onActionNext() {
+                playNext()
+            }
+
+            override fun onActionStop() {
+                stopPlayback()
+            }
+        }
 
         ttsManager.onUtteranceDone = { utteranceId ->
             viewModelScope.launch {
@@ -147,11 +259,15 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
-        // Initialize voice picks once available
+        // 4. Initialize voice picks once available if not already configured
         viewModelScope.launch {
             ttsManager.availableVoices.collect { voices ->
-                if (voices.isNotEmpty() && _uiState.value.speaker1VoiceId == null) {
-                    autoAssignVoices(voices, _uiState.value.selectedLanguage)
+                if (voices.isNotEmpty()) {
+                    val currentS1 = _uiState.value.speaker1VoiceId
+                    val s1Exists = currentS1 != null && voices.any { it.id == currentS1 }
+                    if (currentS1.isNullOrBlank() || !s1Exists) {
+                        autoAssignVoices(voices, _uiState.value.selectedLanguage)
+                    }
                 }
             }
         }
@@ -169,13 +285,20 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
             val v2 = filtered.getOrNull(1 % filtered.size)?.id ?: v1
             val v3 = filtered.getOrNull(2 % filtered.size)?.id ?: v1
 
+            val newS1 = _uiState.value.speaker1VoiceId ?: v1
+            val newS2 = _uiState.value.speaker2VoiceId ?: v2
+            val newS3 = _uiState.value.speaker3VoiceId ?: v3
+
             _uiState.update {
                 it.copy(
-                    speaker1VoiceId = it.speaker1VoiceId ?: v1,
-                    speaker2VoiceId = it.speaker2VoiceId ?: v2,
-                    speaker3VoiceId = it.speaker3VoiceId ?: v3
+                    speaker1VoiceId = newS1,
+                    speaker2VoiceId = newS2,
+                    speaker3VoiceId = newS3
                 )
             }
+            appSettingsStore.speaker1VoiceId = newS1
+            appSettingsStore.speaker2VoiceId = newS2
+            appSettingsStore.speaker3VoiceId = newS3
         }
     }
 
@@ -184,13 +307,20 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
         val sentences = TextSegmenter.splitIntoSentences(
             text,
             _uiState.value.splitMode,
-            _uiState.value.isSplitEnabled
+            _uiState.value.isSplitEnabled,
+            _uiState.value.secondaryPuncts,
+            _uiState.value.terminatorPuncts,
+            _uiState.value.closingPuncts
         )
         val validIndex = if (sentences.isNotEmpty()) initialIndex.coerceIn(0, sentences.size - 1) else -1
 
-        // Persist to recent books
+        // Persist to recent books and settings
         recentBooksStore.saveRecentBook(fileName, text, sentences.size, validIndex)
         val updatedRecent = recentBooksStore.getRecentBooks()
+
+        appSettingsStore.lastOpenedFileName = fileName
+        appSettingsStore.lastOpenedFullText = text
+        appSettingsStore.lastOpenedIndex = validIndex
 
         _uiState.update {
             it.copy(
@@ -212,6 +342,9 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun returnToHome() {
         stopPlayback()
+        appSettingsStore.lastOpenedFullText = ""
+        appSettingsStore.lastOpenedFileName = "未加载书籍"
+        appSettingsStore.lastOpenedIndex = 0
         _uiState.update {
             it.copy(
                 rawText = "",
@@ -234,10 +367,14 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun toggleSplitEnabled() {
         val nextState = !_uiState.value.isSplitEnabled
+        appSettingsStore.isSplitEnabled = nextState
         val sentences = TextSegmenter.splitIntoSentences(
             _uiState.value.rawText,
             _uiState.value.splitMode,
-            nextState
+            nextState,
+            _uiState.value.secondaryPuncts,
+            _uiState.value.terminatorPuncts,
+            _uiState.value.closingPuncts
         )
         val wasPlaying = _uiState.value.isPlaying
         stopPlayback()
@@ -272,10 +409,14 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setSplitMode(mode: SplitMode) {
+        appSettingsStore.splitMode = mode
         val sentences = TextSegmenter.splitIntoSentences(
             _uiState.value.rawText,
             mode,
-            _uiState.value.isSplitEnabled
+            _uiState.value.isSplitEnabled,
+            _uiState.value.secondaryPuncts,
+            _uiState.value.terminatorPuncts,
+            _uiState.value.closingPuncts
         )
         val wasPlaying = _uiState.value.isPlaying
         stopPlayback()
@@ -295,11 +436,111 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun addSecondaryPunct(char: Char) {
+        if (_uiState.value.secondaryPuncts.contains(char)) return
+        val newSet = _uiState.value.secondaryPuncts + char
+        appSettingsStore.secondaryPuncts = newSet
+        _uiState.update { it.copy(secondaryPuncts = newSet) }
+        resegmentCurrentSentences()
+    }
+
+    fun removeSecondaryPunct(char: Char) {
+        val newSet = _uiState.value.secondaryPuncts - char
+        appSettingsStore.secondaryPuncts = newSet
+        _uiState.update { it.copy(secondaryPuncts = newSet) }
+        resegmentCurrentSentences()
+    }
+
+    fun addTerminatorPunct(char: Char) {
+        if (_uiState.value.terminatorPuncts.contains(char)) return
+        val newSet = _uiState.value.terminatorPuncts + char
+        appSettingsStore.terminatorPuncts = newSet
+        _uiState.update { it.copy(terminatorPuncts = newSet) }
+        resegmentCurrentSentences()
+    }
+
+    fun removeTerminatorPunct(char: Char) {
+        val newSet = _uiState.value.terminatorPuncts - char
+        appSettingsStore.terminatorPuncts = newSet
+        _uiState.update { it.copy(terminatorPuncts = newSet) }
+        resegmentCurrentSentences()
+    }
+
+    fun addClosingPunct(char: Char) {
+        if (_uiState.value.closingPuncts.contains(char)) return
+        val newSet = _uiState.value.closingPuncts + char
+        appSettingsStore.closingPuncts = newSet
+        _uiState.update { it.copy(closingPuncts = newSet) }
+        resegmentCurrentSentences()
+    }
+
+    fun removeClosingPunct(char: Char) {
+        val newSet = _uiState.value.closingPuncts - char
+        appSettingsStore.closingPuncts = newSet
+        _uiState.update { it.copy(closingPuncts = newSet) }
+        resegmentCurrentSentences()
+    }
+
+    fun resetPunctuationRules() {
+        val defSec = TextSegmenter.DEFAULT_SECONDARY_PUNCTS
+        val defTerm = TextSegmenter.DEFAULT_TERMINATOR_PUNCTS
+        val defClos = TextSegmenter.DEFAULT_CLOSING_PUNCTS
+        appSettingsStore.secondaryPuncts = defSec
+        appSettingsStore.terminatorPuncts = defTerm
+        appSettingsStore.closingPuncts = defClos
+        _uiState.update {
+            it.copy(
+                secondaryPuncts = defSec,
+                terminatorPuncts = defTerm,
+                closingPuncts = defClos
+            )
+        }
+        resegmentCurrentSentences()
+    }
+
+    private fun resegmentCurrentSentences() {
+        if (_uiState.value.rawText.isBlank()) return
+        val wasPlaying = _uiState.value.isPlaying
+        val oldSentences = _uiState.value.sentences
+        val oldIdx = _uiState.value.currentIndex
+        val currentSentenceSnippet = if (oldIdx in oldSentences.indices) {
+            oldSentences[oldIdx].take(12)
+        } else null
+
+        val sentences = TextSegmenter.splitIntoSentences(
+            rawText = _uiState.value.rawText,
+            splitMode = _uiState.value.splitMode,
+            isSplitEnabled = _uiState.value.isSplitEnabled,
+            secondaryPuncts = _uiState.value.secondaryPuncts,
+            terminatorPuncts = _uiState.value.terminatorPuncts,
+            closingPuncts = _uiState.value.closingPuncts
+        )
+
+        var newIdx = 0
+        if (currentSentenceSnippet != null && sentences.isNotEmpty()) {
+            val match = sentences.indexOfFirst { it.contains(currentSentenceSnippet) }
+            if (match >= 0) newIdx = match
+        }
+
+        _uiState.update {
+            it.copy(
+                sentences = sentences,
+                currentIndex = if (sentences.isNotEmpty()) newIdx.coerceIn(0, sentences.size - 1) else -1
+            )
+        }
+
+        if (wasPlaying && sentences.isNotEmpty()) {
+            jumpToSentence(newIdx.coerceIn(0, sentences.size - 1))
+        }
+    }
+
     fun setThemeMode(mode: ThemeMode) {
+        appSettingsStore.themeMode = mode
         _uiState.update { it.copy(themeMode = mode) }
     }
 
     fun setReadingDisplayMode(mode: ReadingDisplayMode) {
+        appSettingsStore.readingDisplayMode = mode
         _uiState.update { it.copy(readingDisplayMode = mode) }
     }
 
@@ -308,7 +549,17 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
         if (state.sentences.isEmpty()) return
 
         if (state.isPlaying) {
-            stopPlayback()
+            ttsManager.stop()
+            _uiState.update { it.copy(isPlaying = false) }
+            val currentSentence = state.sentences.getOrNull(state.currentIndex) ?: ""
+            val progressText = "${state.currentIndex + 1}/${state.sentences.size}"
+            TtsPlaybackService.startOrUpdate(
+                context = getApplication(),
+                title = state.fileName,
+                sentence = currentSentence,
+                progress = progressText,
+                isPlaying = false
+            )
         } else {
             val indexToPlay = if (state.currentIndex in state.sentences.indices) {
                 state.currentIndex
@@ -361,6 +612,7 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
             )
         }
         recentBooksStore.updateProgress(state.fileName, index)
+        appSettingsStore.lastOpenedIndex = index
         playCurrentSentence()
     }
 
@@ -372,39 +624,42 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         val sentence = state.sentences[state.currentIndex]
-        val voiceId = if (state.multiSpeakerEnabled) {
-            when (state.currentSpeakerPass) {
-                1 -> state.speaker2VoiceId ?: state.speaker1VoiceId
-                2 -> state.speaker3VoiceId ?: state.speaker1VoiceId
-                else -> state.speaker1VoiceId
-            }
+        val speakerIdx = if (state.multiSpeakerEnabled) {
+            state.currentSpeakerPass
         } else {
-            when (state.activeSpeakerIndex) {
-                1 -> state.speaker2VoiceId ?: state.speaker1VoiceId
-                2 -> state.speaker3VoiceId ?: state.speaker1VoiceId
-                else -> state.speaker1VoiceId
-            }
+            state.activeSpeakerIndex
         }
 
-        // If voices are identical, modulate pitch & rate slightly to give distinct speaker flavors
-        var pitch = state.pitch
-        var rate = state.speechRate
-        if (state.multiSpeakerEnabled) {
-            when (state.currentSpeakerPass) {
-                1 -> {
-                    pitch = (state.pitch * 1.25f).coerceAtMost(2.0f)
-                    rate = (state.speechRate * 1.05f).coerceAtMost(2.5f)
-                }
-                2 -> {
-                    pitch = (state.pitch * 0.85f).coerceAtLeast(0.4f)
-                    rate = (state.speechRate * 0.95f).coerceAtLeast(0.5f)
-                }
-            }
+        val voiceId = when (speakerIdx) {
+            1 -> state.speaker2VoiceId ?: state.speaker1VoiceId
+            2 -> state.speaker3VoiceId ?: state.speaker1VoiceId
+            else -> state.speaker1VoiceId
+        }
+
+        val rate = when (speakerIdx) {
+            1 -> state.speaker2Rate
+            2 -> state.speaker3Rate
+            else -> state.speaker1Rate
+        }
+
+        val pitch = when (speakerIdx) {
+            1 -> state.speaker2Pitch
+            2 -> state.speaker3Pitch
+            else -> state.speaker1Pitch
         }
 
         utteranceCounter++
         val utteranceId = "play_${state.currentIndex}_${state.currentRepeatPass}_${state.currentSpeakerPass}_$utteranceCounter"
         ttsManager.speak(sentence, voiceId, rate, pitch, utteranceId)
+
+        val progressText = "${state.currentIndex + 1}/${state.sentences.size}"
+        TtsPlaybackService.startOrUpdate(
+            context = getApplication(),
+            title = state.fileName,
+            sentence = sentence,
+            progress = progressText,
+            isPlaying = true
+        )
     }
 
     private fun handleUtteranceCompleted(utteranceId: String) {
@@ -436,6 +691,8 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
         // Move to next sentence
         val nextIndex = state.currentIndex + 1
         if (nextIndex < state.sentences.size) {
+            recentBooksStore.updateProgress(state.fileName, nextIndex)
+            appSettingsStore.lastOpenedIndex = nextIndex
             _uiState.update {
                 it.copy(
                     currentIndex = nextIndex,
@@ -453,9 +710,11 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     fun stopPlayback() {
         ttsManager.stop()
         _uiState.update { it.copy(isPlaying = false) }
+        TtsPlaybackService.stop(getApplication())
     }
 
     fun setTargetRepeatCount(count: Int) {
+        appSettingsStore.targetRepeatCount = count
         _uiState.update { it.copy(targetRepeatCount = count) }
     }
 
@@ -471,11 +730,14 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setMultiSpeakerEnabled(enabled: Boolean) {
+        appSettingsStore.multiSpeakerEnabled = enabled
         _uiState.update { it.copy(multiSpeakerEnabled = enabled) }
     }
 
     fun toggleMultiSpeaker() {
-        _uiState.update { it.copy(multiSpeakerEnabled = !it.multiSpeakerEnabled) }
+        val next = !_uiState.value.multiSpeakerEnabled
+        appSettingsStore.multiSpeakerEnabled = next
+        _uiState.update { it.copy(multiSpeakerEnabled = next) }
     }
 
     /**
@@ -512,18 +774,27 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setLanguage(lang: String) {
+        appSettingsStore.selectedLanguage = lang
         _uiState.update { it.copy(selectedLanguage = lang) }
         autoAssignVoices(ttsManager.availableVoices.value, lang)
     }
 
     fun setActiveSpeaker(speakerIndex: Int) {
-        _uiState.update { it.copy(activeSpeakerIndex = speakerIndex.coerceIn(0, 2), multiSpeakerEnabled = false) }
+        val validIdx = speakerIndex.coerceIn(0, 2)
+        appSettingsStore.activeSpeakerIndex = validIdx
+        appSettingsStore.multiSpeakerEnabled = false
+        _uiState.update { it.copy(activeSpeakerIndex = validIdx, multiSpeakerEnabled = false) }
         if (_uiState.value.isPlaying) {
             playCurrentSentence()
         }
     }
 
     fun setSpeakerVoice(speakerIndex: Int, voiceId: String?) {
+        when (speakerIndex) {
+            0 -> appSettingsStore.speaker1VoiceId = voiceId
+            1 -> appSettingsStore.speaker2VoiceId = voiceId
+            2 -> appSettingsStore.speaker3VoiceId = voiceId
+        }
         _uiState.update {
             when (speakerIndex) {
                 0 -> it.copy(speaker1VoiceId = voiceId)
@@ -535,11 +806,57 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setSpeechRate(rate: Float) {
-        _uiState.update { it.copy(speechRate = rate) }
+        appSettingsStore.speaker1Rate = rate
+        _uiState.update { it.copy(speechRate = rate, speaker1Rate = rate) }
     }
 
     fun setPitch(pitch: Float) {
-        _uiState.update { it.copy(pitch = pitch) }
+        appSettingsStore.speaker1Pitch = pitch
+        _uiState.update { it.copy(pitch = pitch, speaker1Pitch = pitch) }
+    }
+
+    fun setSpeakerRate(speakerIndex: Int, rate: Float) {
+        when (speakerIndex) {
+            0 -> {
+                appSettingsStore.speaker1Rate = rate
+                _uiState.update { it.copy(speaker1Rate = rate, speechRate = rate) }
+            }
+            1 -> {
+                appSettingsStore.speaker2Rate = rate
+                _uiState.update { it.copy(speaker2Rate = rate) }
+            }
+            2 -> {
+                appSettingsStore.speaker3Rate = rate
+                _uiState.update { it.copy(speaker3Rate = rate) }
+            }
+        }
+    }
+
+    fun setSpeakerPitch(speakerIndex: Int, pitch: Float) {
+        when (speakerIndex) {
+            0 -> {
+                appSettingsStore.speaker1Pitch = pitch
+                _uiState.update { it.copy(speaker1Pitch = pitch, pitch = pitch) }
+            }
+            1 -> {
+                appSettingsStore.speaker2Pitch = pitch
+                _uiState.update { it.copy(speaker2Pitch = pitch) }
+            }
+            2 -> {
+                appSettingsStore.speaker3Pitch = pitch
+                _uiState.update { it.copy(speaker3Pitch = pitch) }
+            }
+        }
+    }
+
+    fun setCustomDictApp(packageName: String, appName: String) {
+        _uiState.update {
+            it.copy(
+                customDictPackageName = packageName,
+                customDictAppName = appName,
+                defaultDictApp = DictAppOption.CUSTOM_APP
+            )
+        }
     }
 
     fun testVoice(speakerIndex: Int) {
@@ -550,13 +867,16 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
             else -> state.speaker1VoiceId
         }
 
-        var pitch = state.pitch
-        var rate = state.speechRate
-        if (state.multiSpeakerEnabled) {
-            when (speakerIndex) {
-                1 -> pitch = (state.pitch * 1.25f).coerceAtMost(2.0f)
-                2 -> pitch = (state.pitch * 0.85f).coerceAtLeast(0.4f)
-            }
+        val rate = when (speakerIndex) {
+            1 -> state.speaker2Rate
+            2 -> state.speaker3Rate
+            else -> state.speaker1Rate
+        }
+
+        val pitch = when (speakerIndex) {
+            1 -> state.speaker2Pitch
+            2 -> state.speaker3Pitch
+            else -> state.speaker1Pitch
         }
 
         val testPhrase = if (state.selectedLanguage.startsWith("zh")) {
@@ -630,19 +950,16 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
                                 else -> state.speaker1VoiceId
                             }
 
-                            var pitch = state.pitch
-                            var rate = state.speechRate
-                            if (includeMultiSpeaker) {
-                                when (sp) {
-                                    1 -> {
-                                        pitch = (state.pitch * 1.25f).coerceAtMost(2.0f)
-                                        rate = (state.speechRate * 1.05f).coerceAtMost(2.5f)
-                                    }
-                                    2 -> {
-                                        pitch = (state.pitch * 0.85f).coerceAtLeast(0.4f)
-                                        rate = (state.speechRate * 0.95f).coerceAtLeast(0.5f)
-                                    }
-                                }
+                            val rate = when (sp) {
+                                1 -> state.speaker2Rate
+                                2 -> state.speaker3Rate
+                                else -> state.speaker1Rate
+                            }
+
+                            val pitch = when (sp) {
+                                1 -> state.speaker2Pitch
+                                2 -> state.speaker3Pitch
+                                else -> state.speaker1Pitch
                             }
 
                             val chunkFile = File(cacheDir, "synth_chunk_${sIdx}_${r}_${sp}.wav")
@@ -778,7 +1095,7 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun dismissPopover() {
-        _uiState.update { it.copy(activePopoverWord = null) }
+        _uiState.update { it.copy(activePopoverWord = null, activePopoverWordBounds = null) }
     }
 
     fun copyWordToClipboard(context: android.content.Context, word: String) {
@@ -792,6 +1109,41 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
             android.widget.Toast.makeText(context, "已复制: $cleanWord", android.widget.Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to copy word", e)
+        }
+    }
+
+    fun searchWeb(context: android.content.Context, query: String) {
+        dismissPopover()
+        val cleanWord = query.replace(Regex("[^a-zA-Z\\u4e00-\\u9fa5\\s]"), "").trim()
+        if (cleanWord.isEmpty()) return
+        try {
+            val encoded = java.net.URLEncoder.encode(cleanWord, "UTF-8")
+            val uri = android.net.Uri.parse("https://www.google.com/search?q=$encoded")
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Web search failed", e)
+            launchProcessText(context, cleanWord)
+        }
+    }
+
+    fun shareText(context: android.content.Context, text: String) {
+        dismissPopover()
+        val cleanWord = text.trim()
+        if (cleanWord.isEmpty()) return
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, cleanWord)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(Intent.createChooser(sendIntent, "分享: $cleanWord").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Share failed", e)
         }
     }
 
@@ -813,23 +1165,21 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun lookupWord(context: android.content.Context, word: String) {
+    fun lookupWord(context: android.content.Context, word: String, clickedBounds: Rect? = null) {
         val cleanWord = word.replace(Regex("[^a-zA-Z\\u4e00-\\u9fa5]"), "").trim()
         if (cleanWord.isEmpty()) return
 
         when (_uiState.value.wordLookupMode) {
             WordLookupMode.DIRECT_DICT -> {
-                if (_uiState.value.defaultDictApp == DictAppOption.LOCAL_MDX) {
-                    performLocalMdictLookup(cleanWord)
-                } else {
-                    launchDictLookup(context, cleanWord, _uiState.value.defaultDictApp)
-                }
+                launchDictLookup(context, cleanWord, _uiState.value.defaultDictApp)
             }
             WordLookupMode.POPOVER_MENU -> {
-                _uiState.update { it.copy(activePopoverWord = cleanWord) }
-            }
-            WordLookupMode.LOCAL_MDX -> {
-                performLocalMdictLookup(cleanWord)
+                _uiState.update { 
+                    it.copy(
+                        activePopoverWord = cleanWord,
+                        activePopoverWordBounds = clickedBounds
+                    ) 
+                }
             }
         }
     }
@@ -983,8 +1333,14 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
         val cleanWord = word.replace(Regex("[^a-zA-Z\\u4e00-\\u9fa5]"), "").trim()
         if (cleanWord.isEmpty()) return
 
-        if (dictApp == DictAppOption.LOCAL_MDX) {
-            performLocalMdictLookup(cleanWord)
+        if (dictApp == DictAppOption.CUSTOM_APP) {
+            val pkg = _uiState.value.customDictPackageName
+            if (pkg.isNullOrBlank()) {
+                android.widget.Toast.makeText(context, "请先在设置中选择自定义词典软件", android.widget.Toast.LENGTH_SHORT).show()
+                launchProcessText(context, cleanWord)
+            } else {
+                launchCustomApp(context, cleanWord, pkg)
+            }
             return
         }
 
@@ -1031,6 +1387,62 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
 
         // General Fallback
         launchProcessText(context, cleanWord)
+    }
+
+    private fun launchCustomApp(context: android.content.Context, word: String, pkg: String) {
+        copyWordToClipboard(context, word)
+        // 1. Try ACTION_PROCESS_TEXT (instant floating query supported by many dict apps)
+        val processIntent = Intent(Intent.ACTION_PROCESS_TEXT).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_PROCESS_TEXT, word)
+            putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
+            setPackage(pkg)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            val activities = context.packageManager.queryIntentActivities(processIntent, 0)
+            if (activities.isNotEmpty()) {
+                context.startActivity(processIntent)
+                return
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "ProcessText failed for $pkg: ${e.message}")
+        }
+
+        // 2. Try ACTION_SEND
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, word)
+            setPackage(pkg)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            val activities = context.packageManager.queryIntentActivities(sendIntent, 0)
+            if (activities.isNotEmpty()) {
+                context.startActivity(sendIntent)
+                return
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "ActionSend failed for $pkg: ${e.message}")
+        }
+
+        // 3. Fallback: Launch application directly
+        try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)?.apply {
+                putExtra("query", word)
+                putExtra("word", word)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (launchIntent != null) {
+                context.startActivity(launchIntent)
+                android.widget.Toast.makeText(context, "已复制单词并打开词典应用", android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "LaunchIntent failed for $pkg: ${e.message}")
+        }
+
+        launchProcessText(context, word)
     }
 
     private fun tryEudicExplicitIntent(context: android.content.Context, word: String): Boolean {
@@ -1130,6 +1542,8 @@ class TtsReaderViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         super.onCleared()
+        TtsPlaybackService.stop(getApplication())
+        TtsPlaybackService.controller = null
         audioExporter.stopPreview()
         ttsManager.shutdown()
     }
